@@ -309,6 +309,29 @@ impl Logo {
                             rendered.push_str(&self.color_to_ansi(color));
                             *current_color = Some(*color);
                         }
+                    } else if next_ch == '{' {
+                        chars.next();
+                        let mut color_id = String::new();
+
+                        while let Some(&ch) = chars.peek() {
+                            if ch == '}' {
+                                chars.next();
+                                break;
+                            }
+                            color_id.push(chars.next().unwrap());
+                        }
+
+                        if color_id.starts_with('c') && color_id.len() == 2 {
+                            if let Some(num) = color_id.chars().nth(1) {
+                                if num.is_numeric() {
+                                    let color_key = format!("${num}");
+                                    if let Some(color) = self.colors.get(&color_key) {
+                                        rendered.push_str(&self.color_to_ansi(color));
+                                        *current_color = Some(*color);
+                                    }
+                                }
+                            }
+                        }
                     } else {
                         rendered.push('$');
                     }
@@ -349,13 +372,23 @@ impl Logo {
 
     fn calculate_display_width(line: &str) -> usize {
         let mut width = 0;
-        let mut chars = line.chars();
+        let mut chars = line.chars().peekable();
 
         while let Some(ch) = chars.next() {
             if ch == '$' {
-                if let Some(next) = chars.next() {
-                    if !next.is_numeric() {
-                        width += 2;
+                if let Some(&next) = chars.peek() {
+                    if next.is_numeric() {
+                        chars.next();
+                    } else if next == '{' {
+                        chars.next();
+                        while let Some(&ch) = chars.peek() {
+                            chars.next();
+                            if ch == '}' {
+                                break;
+                            }
+                        }
+                    } else {
+                        width += 1;
                     }
                 } else {
                     width += 1;
@@ -857,7 +890,8 @@ impl SystemInfo {
     fn display(&self, logo: &Logo) {
         let label_color = logo
             .colors
-            .get("$1")
+            .get("$2")
+            .or_else(|| logo.colors.get("$1"))
             .map(|color| self.color_to_ansi_for_label(color))
             .unwrap_or_else(|| "\x1b[96m".to_string()); // Default to cyan if no color
 
@@ -1004,7 +1038,7 @@ impl SystemInfo {
         for (i, (info_line, has_percent, percent)) in info_lines.iter().enumerate() {
             if i < logo.lines.len() {
                 let rendered_line = logo.render_line(&logo.lines[i], &mut current_color);
-                print!("{rendered_line}");
+                print!("\x1b[1m{rendered_line}\x1b[0m");
 
                 let line_width = Logo::calculate_display_width(&logo.lines[i]);
 
@@ -1044,7 +1078,7 @@ impl SystemInfo {
 
         for i in info_lines.len()..logo.lines.len() {
             println!(
-                "{}\x1b[0m",
+                "\x1b[1m{}\x1b[0m",
                 logo.render_line(&logo.lines[i], &mut current_color)
             );
         }
