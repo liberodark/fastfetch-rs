@@ -250,12 +250,36 @@ impl Logo {
     }
 
     fn load(name: &str, color_overrides: HashMap<String, Color>) -> Result<Self, String> {
-        let possible_paths = vec![
-            format!("src/logo/ascii/{}.txt", name),
-            format!("logo/ascii/{}.txt", name),
-            format!("/usr/share/fastfetch-rs/logos/{}.txt", name),
-            format!("/usr/local/share/fastfetch-rs/logos/{}.txt", name),
+        let mut possible_paths = vec![
+            format!("src/logo/ascii/{name}.txt"),
+            format!("logo/ascii/{name}.txt"),
         ];
+
+        if let Ok(logo_dir) = std::env::var("FASTFETCH_LOGO_DIR") {
+            possible_paths.push(format!("{logo_dir}/{name}.txt"));
+        }
+
+        if let Ok(data_home) = std::env::var("XDG_DATA_HOME") {
+            possible_paths.push(format!("{data_home}/fastfetch-rs/logos/{name}.txt"));
+        }
+
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(prefix) = exe_path.parent().and_then(|p| p.parent()) {
+                let prefix_display = prefix.display();
+                possible_paths.push(format!(
+                    "{prefix_display}/share/fastfetch-rs/logos/{name}.txt"
+                ));
+            }
+        }
+
+        possible_paths.extend(vec![
+            format!("/usr/share/fastfetch-rs/logos/{name}.txt"),
+            format!("/usr/local/share/fastfetch-rs/logos/{name}.txt"),
+        ]);
+
+        if let Ok(home) = std::env::var("HOME") {
+            possible_paths.push(format!("{home}/.local/share/fastfetch-rs/logos/{name}.txt"));
+        }
 
         for path_str in possible_paths {
             let path = Path::new(&path_str);
