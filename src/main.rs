@@ -1036,6 +1036,13 @@ impl SystemInfo {
         let mut current_color = logo.colors.get("$1").copied();
 
         for (i, (info_line, has_percent, percent)) in info_lines.iter().enumerate() {
+            if info_line.contains(": unknown")
+                || info_line.contains(": Unknown")
+                || info_line.contains(": None")
+            {
+                continue;
+            }
+
             if i < logo.lines.len() {
                 let rendered_line = logo.render_line(&logo.lines[i], &mut current_color);
                 print!("\x1b[1m{rendered_line}\x1b[0m");
