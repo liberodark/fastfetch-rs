@@ -979,7 +979,8 @@ pub fn get_logo_colors(os_name: &str) -> HashMap<String, Color> {
             insert_colors!(&[Color::Cyan, Color::Cyan]);
         }
         "xubuntu" => {
-            insert_colors!(&[Color::Blue, Color::DarkBlue]);
+            colors.insert("$1".to_string(), Color::AnsiValue(25));
+            colors.insert("$2".to_string(), Color::White);
         }
         "yiffos" => {
             insert_ansi256_colors!(&[93, 92]);
