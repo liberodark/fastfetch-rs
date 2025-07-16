@@ -281,10 +281,29 @@ impl Logo {
             possible_paths.push(format!("{home}/.local/share/fastfetch-rs/logos/{name}.txt"));
         }
 
-        for path_str in possible_paths {
-            let path = Path::new(&path_str);
+        for path_str in &possible_paths {
+            let path = Path::new(path_str);
             if path.exists() {
                 return Logo::from_file(path, color_overrides);
+            }
+        }
+
+        let test_colors = colors::get_logo_colors(name);
+
+        if test_colors.len() > 2
+            || test_colors.get("$1") != Some(&Color::White)
+            || test_colors.get("$2") != Some(&Color::Grey)
+        {
+            for available_logo in Self::list_available() {
+                if colors::get_logo_colors(&available_logo) == test_colors {
+                    for path_str in &possible_paths {
+                        let new_path = path_str.replace(name, &available_logo);
+                        let path = Path::new(&new_path);
+                        if path.exists() {
+                            return Logo::from_file(path, color_overrides);
+                        }
+                    }
+                }
             }
         }
 
