@@ -183,9 +183,37 @@ struct Logo {
 }
 
 impl Logo {
+    const MAX_LOGO_SIZE: u64 = 16_384; // 16 KB
+    const MAX_LINES: usize = 100;
+    const MAX_LINE_WIDTH: usize = 200;
+
     fn from_file(path: &Path, color_overrides: HashMap<String, Color>) -> Result<Self, String> {
+        let metadata =
+            fs::metadata(path).map_err(|e| format!("Failed to read logo file metadata: {e}"))?;
+
+        if metadata.len() > Self::MAX_LOGO_SIZE {
+            return Err(format!(
+                "Logo file too large: {} bytes (max: {} bytes)",
+                metadata.len(),
+                Self::MAX_LOGO_SIZE
+            ));
+        }
+
         let content =
             fs::read_to_string(path).map_err(|e| format!("Failed to read logo file: {e}"))?;
+
+        if content.contains('\x1b') || content.contains('\u{001b}') {
+            return Err("Logo file contains ANSI escape sequences".to_string());
+        }
+
+        let line_count = content.lines().count();
+        if line_count > Self::MAX_LINES {
+            return Err(format!(
+                "Logo has too many lines: {} (max: {})",
+                line_count,
+                Self::MAX_LINES
+            ));
+        }
 
         let filename = path
             .file_stem()
@@ -203,6 +231,18 @@ impl Logo {
         }
 
         let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+
+        for (i, line) in lines.iter().enumerate() {
+            let display_width = Logo::calculate_display_width(line);
+            if display_width > Self::MAX_LINE_WIDTH {
+                return Err(format!(
+                    "Line {} is too wide: {} chars (max: {})",
+                    i + 1,
+                    display_width,
+                    Self::MAX_LINE_WIDTH
+                ));
+            }
+        }
 
         Ok(Logo { lines, colors })
     }
