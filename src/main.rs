@@ -263,15 +263,24 @@ impl Logo {
     fn list_available() -> Vec<String> {
         let mut logos = Vec::new();
 
-        let patterns = vec![
-            "src/logo/ascii/*.txt",
-            "logo/ascii/*.txt",
-            "/usr/share/fastfetch-rs/logos/*.txt",
-            "/usr/local/share/fastfetch-rs/logos/*.txt",
+        let mut patterns = vec![
+            "src/logo/ascii/*.txt".to_string(),
+            "logo/ascii/*.txt".to_string(),
+            "/usr/share/fastfetch-rs/logos/*.txt".to_string(),
+            "/usr/local/share/fastfetch-rs/logos/*.txt".to_string(),
         ];
 
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(prefix) = exe_path.parent().and_then(|p| p.parent()) {
+                patterns.push(format!(
+                    "{}/share/fastfetch-rs/logos/*.txt",
+                    prefix.display()
+                ));
+            }
+        }
+
         for pattern in patterns {
-            if let Ok(paths) = glob(pattern) {
+            if let Ok(paths) = glob(&pattern) {
                 for path in paths.flatten() {
                     if let Some(stem) = path.file_stem() {
                         if let Some(name) = stem.to_str() {
