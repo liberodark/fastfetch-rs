@@ -655,17 +655,412 @@ impl SystemInfo {
     }
 
     fn detect_packages() -> String {
-        if Path::new("/nix/store").exists() {
-            if let Ok(output) = Command::new("nix-store")
-                .args(["-q", "--requisites", "/run/current-system"])
-                .output()
-            {
+        let mut package_counts = Vec::new();
+
+        let dpkg = Self::count_dpkg_packages();
+        if dpkg > 0 {
+            package_counts.push(format!("{} (apt)", dpkg));
+        }
+
+        let rpm = Self::count_rpm_packages();
+        if rpm > 0 {
+            package_counts.push(format!("{} (rpm)", rpm));
+        }
+
+        let pacman = Self::count_pacman_packages();
+        if pacman > 0 {
+            package_counts.push(format!("{} (pacman)", pacman));
+        }
+
+        let apk = Self::count_apk_packages();
+        if apk > 0 {
+            package_counts.push(format!("{} (apk)", apk));
+        }
+
+        let nix_system = Self::count_nix_packages("/run/current-system");
+        if nix_system > 0 {
+            package_counts.push(format!("{} (nix-system)", nix_system));
+        }
+
+        let mut nix_user = 0;
+
+        if let Ok(home) = env::var("HOME") {
+            let profile_path = format!("{}/.nix-profile", home);
+            nix_user += Self::count_nix_packages(&profile_path);
+
+            let state_home =
+                env::var("XDG_STATE_HOME").unwrap_or_else(|_| format!("{}/.local/state", home));
+            let state_profile = format!("{}/nix/profile", state_home);
+            nix_user += Self::count_nix_packages(&state_profile);
+        }
+
+        if let Ok(user) = env::var("USER") {
+            let per_user_profile = format!("/etc/profiles/per-user/{}", user);
+            nix_user += Self::count_nix_packages(&per_user_profile);
+        }
+
+        if nix_user > 0 {
+            package_counts.push(format!("{} (nix-user)", nix_user));
+        }
+
+        let flatpak = Self::count_flatpak_packages();
+        if flatpak > 0 {
+            package_counts.push(format!("{} (flatpak)", flatpak));
+        }
+
+        let snap = Self::count_snap_packages();
+        if snap > 0 {
+            package_counts.push(format!("{} (snap)", snap));
+        }
+
+        let xbps = Self::count_xbps_packages();
+        if xbps > 0 {
+            package_counts.push(format!("{} (xbps)", xbps));
+        }
+
+        if package_counts.is_empty() {
+            "unknown".to_string()
+        } else {
+            package_counts.join(", ")
+        }
+    }
+
+    fn count_dpkg_packages() -> u32 {
+        let status_file = "/var/lib/dpkg/status";
+        if !Path::new(status_file).exists() {
+            return 0;
+        }
+
+        if let Ok(content) = fs::read_to_string(status_file) {
+            return content.matches("Status: install ok installed").count() as u32;
+        }
+
+        0
+    }
+
+    fn count_rpm_packages() -> u32 {
+        if let Ok(output) = Command::new("rpm").args(["-qa"]).output() {
+            if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
-                let count = stdout.lines().count();
-                return format!("{count} (nix-system)");
+                return stdout.lines().filter(|line| !line.is_empty()).count() as u32;
             }
         }
-        "unknown".to_string()
+
+        0
+    }
+
+    fn count_pacman_packages() -> u32 {
+        let pacman_dir = "/var/lib/pacman/local";
+        if !Path::new(pacman_dir).exists() {
+            return 0;
+        }
+
+        if let Ok(entries) = fs::read_dir(pacman_dir) {
+            return entries
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+                .count() as u32;
+        }
+
+        0
+    }
+
+    fn count_apk_packages() -> u32 {
+        let installed_file = "/lib/apk/db/installed";
+        if !Path::new(installed_file).exists() {
+            return 0;
+        }
+
+        if let Ok(content) = fs::read_to_string(installed_file) {
+            return content.matches("C:Q").count() as u32;
+        }
+
+        0
+    }
+
+    fn count_snap_packages() -> u32 {
+        let mut count = 0;
+
+        let snap_dir = "/snap";
+        if let Ok(entries) = fs::read_dir(snap_dir) {
+            count = entries
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    let name = e.file_name();
+                    let name_str = name.to_string_lossy();
+                    e.file_type().map(|t| t.is_dir()).unwrap_or(false)
+                        && !name_str.starts_with('.')
+                        && name_str != "bin" // Exclude /snap/bin
+                })
+                .count() as u32;
+
+            if count > 0 {
+                return count;
+            }
+        }
+
+        let snapd_dir = "/var/lib/snapd/snap";
+        if let Ok(entries) = fs::read_dir(snapd_dir) {
+            count = entries
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    let name = e.file_name();
+                    let name_str = name.to_string_lossy();
+                    e.file_type().map(|t| t.is_dir()).unwrap_or(false)
+                        && !name_str.starts_with('.')
+                        && name_str != "bin"
+                })
+                .count() as u32;
+        }
+
+        count
+    }
+
+    fn count_xbps_packages() -> u32 {
+        let xbps_dir = "/var/db/xbps";
+        if !Path::new(xbps_dir).exists() {
+            return 0;
+        }
+
+        if let Ok(entries) = fs::read_dir(xbps_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let name_str = name.to_string_lossy();
+
+                if name_str.starts_with("pkgdb-") {
+                    let path = entry.path();
+                    if let Ok(content) = fs::read_to_string(&path) {
+                        return content.matches("<string>installed</string>").count() as u32;
+                    }
+                }
+            }
+        }
+
+        0
+    }
+
+    fn count_nix_packages(path: &str) -> u32 {
+        if !Path::new(path).exists() {
+            return 0;
+        }
+
+        let output = Command::new("nix-store")
+            .args(["--query", "--requisites", path])
+            .output();
+
+        let Ok(output) = output else {
+            return 0;
+        };
+
+        if !output.status.success() {
+            return 0;
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut count = 0;
+
+        for line in stdout.lines() {
+            if Self::is_valid_nix_package(line) {
+                count += 1;
+            }
+        }
+
+        count
+    }
+
+    fn is_valid_nix_package(path: &str) -> bool {
+        if !path.starts_with("/nix/store/") {
+            return false;
+        }
+
+        if !Path::new(path).is_dir() {
+            return false;
+        }
+
+        let package_part = match path.strip_prefix("/nix/store/") {
+            Some(p) => p,
+            None => return false,
+        };
+
+        let package_name = package_part.split('/').next().unwrap_or("");
+
+        if package_name.starts_with("nixos-system-nixos-")
+            || package_name.ends_with("-doc")
+            || package_name.ends_with("-man")
+            || package_name.ends_with("-info")
+            || package_name.ends_with("-dev")
+            || package_name.ends_with("-bin")
+        {
+            return false;
+        }
+
+        // Check if package has a version pattern (digits.digits)
+        // State machine to find pattern like "1.2" or "3.4.5"
+        enum State {
+            Start,
+            Digit,
+            Dot,
+            Match,
+        }
+
+        let mut state = State::Start;
+
+        for c in package_name.chars() {
+            state = match state {
+                State::Start => {
+                    if c.is_ascii_digit() {
+                        State::Digit
+                    } else {
+                        State::Start
+                    }
+                }
+                State::Digit => {
+                    if c.is_ascii_digit() {
+                        State::Digit
+                    } else if c == '.' {
+                        State::Dot
+                    } else {
+                        State::Start
+                    }
+                }
+                State::Dot => {
+                    if c.is_ascii_digit() {
+                        State::Match
+                    } else {
+                        State::Start
+                    }
+                }
+                State::Match => State::Match,
+            };
+        }
+
+        matches!(state, State::Match)
+    }
+
+    fn count_flatpak_packages() -> u32 {
+        let mut count = 0;
+
+        let system_app_dir = "/var/lib/flatpak/app";
+        if let Ok(entries) = fs::read_dir(system_app_dir) {
+            for entry in entries.flatten() {
+                if let Ok(file_type) = entry.file_type() {
+                    if file_type.is_dir() {
+                        let name = entry.file_name();
+                        let name_str = name.to_string_lossy();
+                        if !name_str.starts_with('.') {
+                            let current_path = format!("{}/{}/current", system_app_dir, name_str);
+                            if Path::new(&current_path).exists() {
+                                count += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let system_runtime_dir = "/var/lib/flatpak/runtime";
+        if let Ok(entries) = fs::read_dir(system_runtime_dir) {
+            for entry in entries.flatten() {
+                if let Ok(file_type) = entry.file_type() {
+                    if file_type.is_dir() {
+                        let name = entry.file_name();
+                        let name_str = name.to_string_lossy();
+
+                        if name_str.starts_with('.') {
+                            continue;
+                        }
+
+                        if let Some(dot_pos) = name_str.rfind('.') {
+                            let suffix = &name_str[dot_pos + 1..];
+                            if suffix == "Locale" || suffix == "Debug" {
+                                continue;
+                            }
+                        }
+
+                        let runtime_path = entry.path();
+                        if let Ok(arch_entries) = fs::read_dir(&runtime_path) {
+                            for arch_entry in arch_entries.flatten() {
+                                if let Ok(arch_type) = arch_entry.file_type() {
+                                    if arch_type.is_dir() {
+                                        let arch_name = arch_entry.file_name();
+                                        if !arch_name.to_string_lossy().starts_with('.') {
+                                            if let Ok(version_entries) =
+                                                fs::read_dir(arch_entry.path())
+                                            {
+                                                count += version_entries.count();
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Ok(home) = env::var("HOME") {
+            let user_app_dir = format!("{}/.local/share/flatpak/app", home);
+            if let Ok(entries) = fs::read_dir(&user_app_dir) {
+                for entry in entries.flatten() {
+                    if let Ok(file_type) = entry.file_type() {
+                        if file_type.is_dir() {
+                            let name = entry.file_name();
+                            let name_str = name.to_string_lossy();
+                            if !name_str.starts_with('.') {
+                                let current_path = format!("{}/{}/current", user_app_dir, name_str);
+                                if Path::new(&current_path).exists() {
+                                    count += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            let user_runtime_dir = format!("{}/.local/share/flatpak/runtime", home);
+            if let Ok(entries) = fs::read_dir(&user_runtime_dir) {
+                for entry in entries.flatten() {
+                    if let Ok(file_type) = entry.file_type() {
+                        if file_type.is_dir() {
+                            let name = entry.file_name();
+                            let name_str = name.to_string_lossy();
+
+                            if name_str.starts_with('.') {
+                                continue;
+                            }
+
+                            if let Some(dot_pos) = name_str.rfind('.') {
+                                let suffix = &name_str[dot_pos + 1..];
+                                if suffix == "Locale" || suffix == "Debug" {
+                                    continue;
+                                }
+                            }
+
+                            let runtime_path = entry.path();
+                            if let Ok(arch_entries) = fs::read_dir(&runtime_path) {
+                                for arch_entry in arch_entries.flatten() {
+                                    if let Ok(arch_type) = arch_entry.file_type() {
+                                        if arch_type.is_dir() {
+                                            let arch_name = arch_entry.file_name();
+                                            if !arch_name.to_string_lossy().starts_with('.') {
+                                                if let Ok(version_entries) =
+                                                    fs::read_dir(arch_entry.path())
+                                                {
+                                                    count += version_entries.count();
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        count as u32
     }
 
     fn detect_shell() -> String {
