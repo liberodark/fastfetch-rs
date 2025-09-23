@@ -1215,7 +1215,7 @@ impl SystemInfo {
 
     fn detect_disks() -> Vec<(String, String, u32)> {
         let mut disks = Vec::new();
-        let mut seen_btrfs_devices = HashSet::new();
+        let mut seen_devices = HashSet::new();
 
         if let Ok(mounts) = fs::read_to_string("/proc/mounts") {
             for line in mounts.lines() {
@@ -1250,13 +1250,11 @@ impl SystemInfo {
                     continue;
                 }
 
-                // For btrfs, skip if we've already seen this device
-                if fs_type == "btrfs" {
-                    if seen_btrfs_devices.contains(device) {
-                        continue;
-                    }
-                    seen_btrfs_devices.insert(device.to_string());
+                // Skip if device already seen (avoids duplicates)
+                if seen_devices.contains(device) {
+                    continue;
                 }
+                seen_devices.insert(device.to_string());
 
                 if let Ok(stat) = statfs(mount_point) {
                     let total_bytes = stat.blocks() * stat.block_size() as u64;
