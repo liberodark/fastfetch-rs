@@ -3,13 +3,21 @@ mod colors;
 use clap::Parser;
 use crossterm::style::Color;
 use glob::glob;
-use nix::sys::sysinfo;
+use nix::sys::statfs::statfs;
+use nix::sys::{sysinfo, utsname::uname};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::LazyLock;
+
+static IP_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"inet\s+(\d+\.\d+\.\d+\.\d+/\d+)").unwrap());
+
+static VERSION_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(\d+\.\d+(?:\.\d+)?)").unwrap());
 
 #[derive(Parser, Debug)]
 #[command(
@@ -546,13 +554,10 @@ impl SystemInfo {
                         .trim_matches('"')
                         .to_string();
 
-                    let arch = Command::new("uname")
-                        .arg("-m")
-                        .output()
-                        .ok()
-                        .and_then(|o| String::from_utf8(o.stdout).ok())
-                        .map(|s| s.trim().to_string())
-                        .unwrap_or_else(|| "unknown".to_string());
+                    let arch = match uname() {
+                        Ok(info) => info.machine().to_string_lossy().to_string(),
+                        Err(_) => "unknown".to_string(),
+                    };
 
                     return format!("{os_name} {arch}");
                 }
@@ -602,10 +607,9 @@ impl SystemInfo {
     }
 
     fn detect_kernel() -> String {
-        if let Ok(output) = Command::new("uname").arg("-r").output() {
-            format!("Linux {}", String::from_utf8_lossy(&output.stdout).trim())
-        } else {
-            "Unknown".to_string()
+        match uname() {
+            Ok(info) => format!("Linux {}", info.release().to_string_lossy()),
+            Err(_) => "Unknown".to_string(),
         }
     }
 
@@ -1082,8 +1086,8 @@ impl SystemInfo {
     }
 
     fn extract_version(text: &str) -> Option<String> {
-        let re = Regex::new(r"(\d+\.\d+(?:\.\d+)?)").ok()?;
-        re.captures(text)
+        VERSION_REGEX
+            .captures(text)
             .and_then(|cap| cap.get(1))
             .map(|m| m.as_str().to_string())
     }
@@ -1213,53 +1217,56 @@ impl SystemInfo {
         let mut disks = Vec::new();
         let mut seen_btrfs_devices = HashSet::new();
 
-        if let Ok(output) = Command::new("df")
-            .args(["-B1"]) // Get sizes in bytes for accurate conversion
-            .output()
-        {
-            let output_str = String::from_utf8_lossy(&output.stdout);
-            for line in output_str.lines().skip(1) {
+        if let Ok(mounts) = fs::read_to_string("/proc/mounts") {
+            for line in mounts.lines() {
                 let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 6 {
-                    let device = parts[0];
-                    let mount_point = parts[5];
+                if parts.len() < 3 {
+                    continue;
+                }
 
-                    // Skip special filesystems
-                    if mount_point.starts_with("/dev")
-                        || mount_point.starts_with("/proc")
-                        || mount_point.starts_with("/sys")
-                        || mount_point.starts_with("/run")
-                        || mount_point.starts_with("/tmp")
-                        || mount_point == "/boot"
-                        || mount_point == "/boot/efi"
-                        || device.starts_with("tmpfs")
-                        || device.starts_with("devtmpfs")
-                        || device.starts_with("overlay")
-                        || device == "efivarfs"
-                        || device == "none"
-                    {
+                let device = parts[0];
+                let mount_point = parts[1];
+                let fs_type = parts[2];
+
+                // Skip special filesystems
+                if mount_point.starts_with("/dev")
+                    || mount_point.starts_with("/proc")
+                    || mount_point.starts_with("/sys")
+                    || mount_point.starts_with("/run")
+                    || mount_point.starts_with("/tmp")
+                    || mount_point == "/boot"
+                    || mount_point == "/boot/efi"
+                    || device.starts_with("tmpfs")
+                    || device.starts_with("devtmpfs")
+                    || device.starts_with("overlay")
+                    || device == "efivarfs"
+                    || device == "none"
+                {
+                    continue;
+                }
+
+                // Only include real filesystems
+                if !device.starts_with("/dev/") && mount_point != "/" {
+                    continue;
+                }
+
+                // For btrfs, skip if we've already seen this device
+                if fs_type == "btrfs" {
+                    if seen_btrfs_devices.contains(device) {
                         continue;
                     }
+                    seen_btrfs_devices.insert(device.to_string());
+                }
 
-                    // Only include real filesystems
-                    if !device.starts_with("/dev/") && mount_point != "/" {
-                        continue;
-                    }
-
-                    let fs_type = Self::detect_fs_type(mount_point);
-
-                    // For btrfs, skip if we've already seen this device
-                    if fs_type == "btrfs" {
-                        if seen_btrfs_devices.contains(device) {
-                            continue;
-                        }
-                        seen_btrfs_devices.insert(device.to_string());
-                    }
-
-                    let total_bytes: u64 = parts[1].parse().unwrap_or(0);
-                    let used_bytes: u64 = parts[2].parse().unwrap_or(0);
-                    let percent_str = parts[4].trim_end_matches('%');
-                    let percent = percent_str.parse().unwrap_or(0);
+                if let Ok(stat) = statfs(mount_point) {
+                    let total_bytes = stat.blocks() * stat.block_size() as u64;
+                    let free_bytes = stat.blocks_free() * stat.block_size() as u64;
+                    let used_bytes = total_bytes - free_bytes;
+                    let percent = if total_bytes > 0 {
+                        ((used_bytes as f64 / total_bytes as f64) * 100.0) as u32
+                    } else {
+                        0
+                    };
 
                     let used_str = Self::format_bytes(used_bytes);
                     let total_str = Self::format_bytes(total_bytes);
@@ -1309,22 +1316,9 @@ impl SystemInfo {
         }
     }
 
-    fn detect_fs_type(mount_point: &str) -> String {
-        if let Ok(content) = fs::read_to_string("/proc/mounts") {
-            for line in content.lines() {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 3 && parts[1] == mount_point {
-                    return parts[2].to_string();
-                }
-            }
-        }
-        "unknown".to_string()
-    }
-
     fn detect_local_ip() -> String {
         if let Ok(output) = Command::new("ip").args(["addr", "show"]).output() {
             let output_str = String::from_utf8_lossy(&output.stdout);
-            let re = Regex::new(r"inet\s+(\d+\.\d+\.\d+\.\d+/\d+)").unwrap();
 
             let mut current_interface = String::new();
             for line in output_str.lines() {
@@ -1338,7 +1332,7 @@ impl SystemInfo {
                     }
                 }
 
-                if let Some(captures) = re.captures(line) {
+                if let Some(captures) = IP_REGEX.captures(line) {
                     let ip = &captures[1];
                     if !ip.starts_with("127.") && !current_interface.is_empty() {
                         return format!("{ip} ({current_interface})");
