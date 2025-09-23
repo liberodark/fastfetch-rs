@@ -1672,4 +1672,46 @@ mod tests {
         assert_eq!(parse_color("#12345"), None);
         assert_eq!(parse_color("256"), None);
     }
+
+    #[test]
+    fn test_no_nix_store_duplicate() {
+        let disks = SystemInfo::detect_disks();
+        let root = disks.iter().find(|(m, _, _)| m == "/");
+        let nix = disks.iter().find(|(m, _, _)| m == "/nix/store");
+
+        if let (Some(root), Some(nix)) = (root, nix) {
+            assert_ne!(
+                root.1, nix.1,
+                "/nix/store should not show if it's a bind mount of /"
+            );
+        }
+    }
+
+    #[test]
+    fn test_disk_size_format() {
+        let disks = SystemInfo::detect_disks();
+
+        for (mount, info, percent) in &disks {
+            assert!(
+                info.contains(" / "),
+                "Disk {} should have 'used / total' format",
+                mount
+            );
+
+            assert!(
+                info.contains(" - "),
+                "Disk {} should include filesystem type",
+                mount
+            );
+
+            assert!(
+                *percent <= 100,
+                "Disk {} percentage {} should be <= 100",
+                mount,
+                percent
+            );
+
+            assert!(info.contains("B "), "Disk {} should have size units", mount);
+        }
+    }
 }
