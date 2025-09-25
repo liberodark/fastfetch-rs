@@ -663,7 +663,7 @@ impl SystemInfo {
 
         let dpkg = Self::count_dpkg_packages();
         if dpkg > 0 {
-            package_counts.push(format!("{} (apt)", dpkg));
+            package_counts.push(format!("{} (dpkg)", dpkg));
         }
 
         let rpm = Self::count_rpm_packages();
@@ -1194,23 +1194,24 @@ impl SystemInfo {
     }
 
     fn detect_swap() -> String {
-        if let Ok(meminfo) = fs::read_to_string("/proc/meminfo") {
-            let mut total_kb = 0u64;
+        match sysinfo::sysinfo() {
+            Ok(info) => {
+                let total_swap = info.swap_total();
+                let free_swap = info.swap_free();
 
-            for line in meminfo.lines() {
-                if line.starts_with("SwapTotal:") {
-                    if let Some(val) = line.split_whitespace().nth(1) {
-                        total_kb = val.parse().unwrap_or(0);
-                    }
-                    break;
+                if total_swap == 0 {
+                    return "Disabled".to_string();
                 }
-            }
 
-            if total_kb == 0 {
-                return "Disabled".to_string();
+                let used_swap = total_swap - free_swap;
+                let total_gib = total_swap as f64 / 1024.0 / 1024.0 / 1024.0;
+                let percent = ((used_swap as f64 / total_swap as f64) * 100.0) as u32;
+
+                let used_str = Self::format_bytes(used_swap);
+                format!("{used_str} / {total_gib:.2} GiB ({}%)", percent)
             }
+            Err(_) => "Unknown".to_string(),
         }
-        "Unknown".to_string()
     }
 
     fn detect_disks() -> Vec<(String, String, u32)> {
