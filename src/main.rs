@@ -143,16 +143,13 @@ fn parse_color(color_str: &str) -> Option<Color> {
         "silver" => Some(Color::AnsiValue(250)),
 
         _ => {
-            if let Some(hex) = color_str.strip_prefix('#') {
-                if hex.len() == 6 {
-                    if let Ok(r) = u8::from_str_radix(&hex[0..2], 16) {
-                        if let Ok(g) = u8::from_str_radix(&hex[2..4], 16) {
-                            if let Ok(b) = u8::from_str_radix(&hex[4..6], 16) {
-                                return Some(Color::Rgb { r, g, b });
-                            }
-                        }
-                    }
-                }
+            if let Some(hex) = color_str.strip_prefix('#')
+                && hex.len() == 6
+                && let Ok(r) = u8::from_str_radix(&hex[0..2], 16)
+                && let Ok(g) = u8::from_str_radix(&hex[2..4], 16)
+                && let Ok(b) = u8::from_str_radix(&hex[4..6], 16)
+            {
+                return Some(Color::Rgb { r, g, b });
             }
 
             if let Ok(num) = color_str.parse::<u8>() {
@@ -278,24 +275,24 @@ impl Logo {
             "/usr/local/share/fastfetch-rs/logos/*.txt".to_string(),
         ];
 
-        if let Ok(exe_path) = std::env::current_exe() {
-            if let Some(prefix) = exe_path.parent().and_then(|p| p.parent()) {
-                patterns.push(format!(
-                    "{}/share/fastfetch-rs/logos/*.txt",
-                    prefix.display()
-                ));
-            }
+        if let Ok(exe_path) = std::env::current_exe()
+            && let Some(prefix) = exe_path.parent().and_then(|p| p.parent())
+        {
+            patterns.push(format!(
+                "{}/share/fastfetch-rs/logos/*.txt",
+                prefix.display()
+            ));
         }
 
         for pattern in patterns {
             if let Ok(paths) = glob(&pattern) {
                 for path in paths.flatten() {
-                    if let Some(stem) = path.file_stem() {
-                        if let Some(name) = stem.to_str() {
-                            if !name.ends_with("_small") && !name.ends_with("_old") {
-                                logos.push(name.to_string());
-                            }
-                        }
+                    if let Some(stem) = path.file_stem()
+                        && let Some(name) = stem.to_str()
+                        && !name.ends_with("_small")
+                        && !name.ends_with("_old")
+                    {
+                        logos.push(name.to_string());
                     }
                 }
             }
@@ -320,13 +317,13 @@ impl Logo {
             possible_paths.push(format!("{data_home}/fastfetch-rs/logos/{name}.txt"));
         }
 
-        if let Ok(exe_path) = std::env::current_exe() {
-            if let Some(prefix) = exe_path.parent().and_then(|p| p.parent()) {
-                let prefix_display = prefix.display();
-                possible_paths.push(format!(
-                    "{prefix_display}/share/fastfetch-rs/logos/{name}.txt"
-                ));
-            }
+        if let Ok(exe_path) = std::env::current_exe()
+            && let Some(prefix) = exe_path.parent().and_then(|p| p.parent())
+        {
+            let prefix_display = prefix.display();
+            possible_paths.push(format!(
+                "{prefix_display}/share/fastfetch-rs/logos/{name}.txt"
+            ));
         }
 
         possible_paths.extend(vec![
@@ -397,15 +394,15 @@ impl Logo {
                             color_id.push(chars.next().unwrap());
                         }
 
-                        if color_id.starts_with('c') && color_id.len() == 2 {
-                            if let Some(num) = color_id.chars().nth(1) {
-                                if num.is_numeric() {
-                                    let color_key = format!("${num}");
-                                    if let Some(color) = self.colors.get(&color_key) {
-                                        rendered.push_str(&self.color_to_ansi(color));
-                                        *current_color = Some(*color);
-                                    }
-                                }
+                        if color_id.starts_with('c')
+                            && color_id.len() == 2
+                            && let Some(num) = color_id.chars().nth(1)
+                            && num.is_numeric()
+                        {
+                            let color_key = format!("${num}");
+                            if let Some(color) = self.colors.get(&color_key) {
+                                rendered.push_str(&self.color_to_ansi(color));
+                                *current_color = Some(*color);
                             }
                         }
                     } else {
@@ -743,11 +740,11 @@ impl SystemInfo {
     }
 
     fn count_rpm_packages() -> u32 {
-        if let Ok(output) = Command::new("rpm").args(["-qa"]).output() {
-            if output.status.success() {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                return stdout.lines().filter(|line| !line.is_empty()).count() as u32;
-            }
+        if let Ok(output) = Command::new("rpm").args(["-qa"]).output()
+            && output.status.success()
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            return stdout.lines().filter(|line| !line.is_empty()).count() as u32;
         }
 
         0
@@ -947,15 +944,15 @@ impl SystemInfo {
         let system_app_dir = "/var/lib/flatpak/app";
         if let Ok(entries) = fs::read_dir(system_app_dir) {
             for entry in entries.flatten() {
-                if let Ok(file_type) = entry.file_type() {
-                    if file_type.is_dir() {
-                        let name = entry.file_name();
-                        let name_str = name.to_string_lossy();
-                        if !name_str.starts_with('.') {
-                            let current_path = format!("{}/{}/current", system_app_dir, name_str);
-                            if Path::new(&current_path).exists() {
-                                count += 1;
-                            }
+                if let Ok(file_type) = entry.file_type()
+                    && file_type.is_dir()
+                {
+                    let name = entry.file_name();
+                    let name_str = name.to_string_lossy();
+                    if !name_str.starts_with('.') {
+                        let current_path = format!("{}/{}/current", system_app_dir, name_str);
+                        if Path::new(&current_path).exists() {
+                            count += 1;
                         }
                     }
                 }
@@ -965,8 +962,64 @@ impl SystemInfo {
         let system_runtime_dir = "/var/lib/flatpak/runtime";
         if let Ok(entries) = fs::read_dir(system_runtime_dir) {
             for entry in entries.flatten() {
-                if let Ok(file_type) = entry.file_type() {
-                    if file_type.is_dir() {
+                if let Ok(file_type) = entry.file_type()
+                    && file_type.is_dir()
+                {
+                    let name = entry.file_name();
+                    let name_str = name.to_string_lossy();
+
+                    if name_str.starts_with('.') {
+                        continue;
+                    }
+
+                    if let Some(dot_pos) = name_str.rfind('.') {
+                        let suffix = &name_str[dot_pos + 1..];
+                        if suffix == "Locale" || suffix == "Debug" {
+                            continue;
+                        }
+                    }
+
+                    let runtime_path = entry.path();
+                    if let Ok(arch_entries) = fs::read_dir(&runtime_path) {
+                        for arch_entry in arch_entries.flatten() {
+                            if let Ok(arch_type) = arch_entry.file_type()
+                                && arch_type.is_dir()
+                                && !arch_entry.file_name().to_string_lossy().starts_with('.')
+                                && let Ok(version_entries) = fs::read_dir(arch_entry.path())
+                            {
+                                count += version_entries.count();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Ok(home) = env::var("HOME") {
+            let user_app_dir = format!("{}/.local/share/flatpak/app", home);
+            if let Ok(entries) = fs::read_dir(&user_app_dir) {
+                for entry in entries.flatten() {
+                    if let Ok(file_type) = entry.file_type()
+                        && file_type.is_dir()
+                    {
+                        let name = entry.file_name();
+                        let name_str = name.to_string_lossy();
+                        if !name_str.starts_with('.') {
+                            let current_path = format!("{}/{}/current", user_app_dir, name_str);
+                            if Path::new(&current_path).exists() {
+                                count += 1;
+                            }
+                        }
+                    }
+                }
+            }
+
+            let user_runtime_dir = format!("{}/.local/share/flatpak/runtime", home);
+            if let Ok(entries) = fs::read_dir(&user_runtime_dir) {
+                for entry in entries.flatten() {
+                    if let Ok(file_type) = entry.file_type()
+                        && file_type.is_dir()
+                    {
                         let name = entry.file_name();
                         let name_str = name.to_string_lossy();
 
@@ -984,78 +1037,12 @@ impl SystemInfo {
                         let runtime_path = entry.path();
                         if let Ok(arch_entries) = fs::read_dir(&runtime_path) {
                             for arch_entry in arch_entries.flatten() {
-                                if let Ok(arch_type) = arch_entry.file_type() {
-                                    if arch_type.is_dir() {
-                                        let arch_name = arch_entry.file_name();
-                                        if !arch_name.to_string_lossy().starts_with('.') {
-                                            if let Ok(version_entries) =
-                                                fs::read_dir(arch_entry.path())
-                                            {
-                                                count += version_entries.count();
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if let Ok(home) = env::var("HOME") {
-            let user_app_dir = format!("{}/.local/share/flatpak/app", home);
-            if let Ok(entries) = fs::read_dir(&user_app_dir) {
-                for entry in entries.flatten() {
-                    if let Ok(file_type) = entry.file_type() {
-                        if file_type.is_dir() {
-                            let name = entry.file_name();
-                            let name_str = name.to_string_lossy();
-                            if !name_str.starts_with('.') {
-                                let current_path = format!("{}/{}/current", user_app_dir, name_str);
-                                if Path::new(&current_path).exists() {
-                                    count += 1;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            let user_runtime_dir = format!("{}/.local/share/flatpak/runtime", home);
-            if let Ok(entries) = fs::read_dir(&user_runtime_dir) {
-                for entry in entries.flatten() {
-                    if let Ok(file_type) = entry.file_type() {
-                        if file_type.is_dir() {
-                            let name = entry.file_name();
-                            let name_str = name.to_string_lossy();
-
-                            if name_str.starts_with('.') {
-                                continue;
-                            }
-
-                            if let Some(dot_pos) = name_str.rfind('.') {
-                                let suffix = &name_str[dot_pos + 1..];
-                                if suffix == "Locale" || suffix == "Debug" {
-                                    continue;
-                                }
-                            }
-
-                            let runtime_path = entry.path();
-                            if let Ok(arch_entries) = fs::read_dir(&runtime_path) {
-                                for arch_entry in arch_entries.flatten() {
-                                    if let Ok(arch_type) = arch_entry.file_type() {
-                                        if arch_type.is_dir() {
-                                            let arch_name = arch_entry.file_name();
-                                            if !arch_name.to_string_lossy().starts_with('.') {
-                                                if let Ok(version_entries) =
-                                                    fs::read_dir(arch_entry.path())
-                                                {
-                                                    count += version_entries.count();
-                                                }
-                                            }
-                                        }
-                                    }
+                                if let Ok(arch_type) = arch_entry.file_type()
+                                    && arch_type.is_dir()
+                                    && !arch_entry.file_name().to_string_lossy().starts_with('.')
+                                    && let Ok(version_entries) = fs::read_dir(arch_entry.path())
+                                {
+                                    count += version_entries.count();
                                 }
                             }
                         }
@@ -1068,19 +1055,19 @@ impl SystemInfo {
     }
 
     fn detect_shell() -> String {
-        if let Ok(shell_path) = env::var("SHELL") {
-            if let Some(shell_name) = Path::new(&shell_path).file_name() {
-                let shell = shell_name.to_string_lossy().to_string();
+        if let Ok(shell_path) = env::var("SHELL")
+            && let Some(shell_name) = Path::new(&shell_path).file_name()
+        {
+            let shell = shell_name.to_string_lossy().to_string();
 
-                if let Ok(output) = Command::new(&shell_path).arg("--version").output() {
-                    let version_str = String::from_utf8_lossy(&output.stdout);
-                    if let Some(version) = Self::extract_version(&version_str) {
-                        return format!("{shell} {version}");
-                    }
+            if let Ok(output) = Command::new(&shell_path).arg("--version").output() {
+                let version_str = String::from_utf8_lossy(&output.stdout);
+                if let Some(version) = Self::extract_version(&version_str) {
+                    return format!("{shell} {version}");
                 }
-
-                return shell;
             }
+
+            return shell;
         }
         "unknown".to_string()
     }
@@ -1096,18 +1083,19 @@ impl SystemInfo {
         if let Ok(output) = Command::new("xrandr").output() {
             let output_str = String::from_utf8_lossy(&output.stdout);
             for line in output_str.lines() {
-                if line.contains(" connected") && line.contains("x") {
-                    if let Some(resolution) = line.split_whitespace().find(|s| {
+                if line.contains(" connected")
+                    && line.contains("x")
+                    && let Some(resolution) = line.split_whitespace().find(|s| {
                         s.contains("x") && s.chars().next().is_some_and(|c| c.is_numeric())
-                    }) {
-                        let refresh = line
-                            .split_whitespace()
-                            .find(|s| s.ends_with("*") || s.ends_with("+"))
-                            .and_then(|s| s.trim_end_matches(['*', '+']).parse::<f32>().ok())
-                            .unwrap_or(75.0);
+                    })
+                {
+                    let refresh = line
+                        .split_whitespace()
+                        .find(|s| s.ends_with("*") || s.ends_with("+"))
+                        .and_then(|s| s.trim_end_matches(['*', '+']).parse::<f32>().ok())
+                        .unwrap_or(75.0);
 
-                        return format!("{} @ {} Hz in 15\"", resolution, refresh as u32);
-                    }
+                    return format!("{} @ {} Hz in 15\"", resolution, refresh as u32);
                 }
             }
         }
@@ -1133,10 +1121,11 @@ impl SystemInfo {
                     model_name = line.split(':').nth(1).unwrap_or("").trim().to_string();
                 } else if line.starts_with("processor") {
                     cpu_count += 1;
-                } else if line.starts_with("cpu MHz") && cpu_mhz == 0.0 {
-                    if let Some(mhz_str) = line.split(':').nth(1) {
-                        cpu_mhz = mhz_str.trim().parse().unwrap_or(0.0);
-                    }
+                } else if line.starts_with("cpu MHz")
+                    && cpu_mhz == 0.0
+                    && let Some(mhz_str) = line.split(':').nth(1)
+                {
+                    cpu_mhz = mhz_str.trim().parse().unwrap_or(0.0);
                 }
             }
 
@@ -1152,10 +1141,10 @@ impl SystemInfo {
         if let Ok(output) = Command::new("lspci").output() {
             let output_str = String::from_utf8_lossy(&output.stdout);
             for line in output_str.lines() {
-                if line.contains("VGA") || line.contains("3D") || line.contains("Display") {
-                    if let Some(gpu_info) = line.split(':').nth(2) {
-                        return gpu_info.trim().to_string();
-                    }
+                if (line.contains("VGA") || line.contains("3D") || line.contains("Display"))
+                    && let Some(gpu_info) = line.split(':').nth(2)
+                {
+                    return gpu_info.trim().to_string();
                 }
             }
         }
@@ -1172,10 +1161,10 @@ impl SystemInfo {
                     if let Some(val) = line.split_whitespace().nth(1) {
                         total_kb = val.parse().unwrap_or(0);
                     }
-                } else if line.starts_with("MemAvailable:") {
-                    if let Some(val) = line.split_whitespace().nth(1) {
-                        available_kb = val.parse().unwrap_or(0);
-                    }
+                } else if line.starts_with("MemAvailable:")
+                    && let Some(val) = line.split_whitespace().nth(1)
+                {
+                    available_kb = val.parse().unwrap_or(0);
                 }
             }
 
@@ -1321,13 +1310,14 @@ impl SystemInfo {
 
             let mut current_interface = String::new();
             for line in output_str.lines() {
-                if let Some(colon_pos) = line.find(':') {
-                    if colon_pos > 0 && colon_pos < 10 {
-                        let parts: Vec<&str> = line.split(':').collect();
-                        if parts.len() >= 2 {
-                            current_interface =
-                                parts[1].trim().split('@').next().unwrap_or("").to_string();
-                        }
+                if let Some(colon_pos) = line.find(':')
+                    && colon_pos > 0
+                    && colon_pos < 10
+                {
+                    let parts: Vec<&str> = line.split(':').collect();
+                    if parts.len() >= 2 {
+                        current_interface =
+                            parts[1].trim().split('@').next().unwrap_or("").to_string();
                     }
                 }
 
